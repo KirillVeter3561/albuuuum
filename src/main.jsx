@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import {
   Camera,
+  CircleAlert,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -155,9 +156,15 @@ function App() {
   const [active, setActive] = useState(null);
   const [page, setPage] = useState("home");
   const [modal, setModal] = useState(null);
-  const [toast, setToast] = useState(null);
+  const [toasts, setToasts] = useState([]);
   const slug = window.location.pathname.match(/^\/a\/([^/]+)$/)?.[1];
-  const notify = (text, type = "error") => setToast({ text, type });
+  const notify = (text, type = "error") => {
+    const toast = { id: crypto.randomUUID(), text, type };
+    setToasts((current) => [...current.slice(-3), toast]);
+  };
+  const dismissToast = (id) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  };
 
   useEffect(() => {
     if (!supabase) return;
@@ -272,7 +279,7 @@ function App() {
         onHome={() => setPage("home")}
         onProfile={() => setPage("profile")}
       />
-      {toast && <Toast {...toast} close={() => setToast(null)} />}{" "}
+      <ToastViewport toasts={toasts} dismiss={dismissToast} />
       {page === "home" ? (
         <AlbumPage
           album={active}
@@ -283,6 +290,7 @@ function App() {
           openFolderCreate={() => setModal("create-folder")}
           openProfile={() => setPage("profile")}
           openEditAlbum={() => setModal({ type: "edit-album", album: active })}
+          notify={notify}
         />
       ) : (
         <Dashboard
@@ -312,7 +320,7 @@ function App() {
             />
           )}{" "}
           {modal?.type === "share" && (
-            <Share album={modal.album} close={() => setModal(null)} />
+            <Share album={modal.album} notify={notify} close={() => setModal(null)} />
           )}{" "}
           {modal?.type === "folder-contents" && (
             <FolderContents
@@ -320,6 +328,7 @@ function App() {
               album={active}
               user={user}
               notify={notify}
+              initialFiles={modal.initialFiles}
               onEdit={() => setModal({ type: "edit-folder", folder: modal.folder })}
             />
           )}{" "}
@@ -331,6 +340,13 @@ function App() {
               notify={notify}
               close={() => setModal(null)}
               onSaved={() => setActive((current) => current ? { ...current } : current)}
+              onUploaded={(files) =>
+                setModal({
+                  type: "folder-contents",
+                  folder: modal.folder,
+                  initialFiles: files,
+                })
+              }
               onDeleted={() => {
                 setActive((current) => current ? { ...current } : current);
                 setModal(null);
@@ -632,6 +648,7 @@ function AlbumPage({
   openFolderCreate,
   openProfile,
   openEditAlbum,
+  notify,
 }) {
   const [folders, setFolders] = useState([]);
   const [media, setMedia] = useState([]);
@@ -642,6 +659,8 @@ function AlbumPage({
   );
   const slideshowRef = useRef(null);
   const slideshowPauseUntil = useRef(0);
+  const slideshowResumeTimer = useRef(null);
+  const slideshowAutoScrollTarget = useRef(null);
   const [isOwner, setIsOwner] = useState(false);
 
   useEffect(() => {
@@ -684,22 +703,50 @@ function AlbumPage({
 
   useEffect(() => {
     const container = slideshowRef.current;
-    if (!container || !allPhotos.length) return;
+    if (!container || allPhotos.length < 2) return;
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     let reducedMotion = motionQuery.matches;
-    let frame;
+    let frame = 0;
     let lastTime = performance.now();
-    const setReducedMotion = (event) => { reducedMotion = event.matches; };
-    motionQuery.addEventListener("change", setReducedMotion);
+    const loopWidth = () => {
+      const firstItem = container.children[0];
+      const firstClone = container.children[container.children.length / 2];
+      return firstItem && firstClone
+        ? firstClone.offsetLeft - firstItem.offsetLeft
+        : 0;
+    };
+    const normalizePosition = () => {
+      const width = loopWidth();
+      if (width > container.clientWidth && container.scrollLeft >= width) {
+        container.scrollLeft %= width;
+        slideshowAutoScrollTarget.current = container.scrollLeft;
+      }
+    };
+    const setReducedMotion = (event) => {
+      reducedMotion = event.matches;
+    };
+    const resetClock = () => {
+      lastTime = performance.now();
+    };
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(normalizePosition);
+    resizeObserver?.observe(container);
+    window.addEventListener("resize", normalizePosition);
+    motionQuery.addEventListener?.("change", setReducedMotion);
+    motionQuery.addListener?.(setReducedMotion);
+    document.addEventListener("visibilitychange", resetClock);
+
     const animate = (time) => {
       const elapsed = time - lastTime;
       lastTime = time;
       if (!reducedMotion && !document.hidden && time >= slideshowPauseUntil.current) {
-        const loopWidth = container.scrollWidth / 2;
-        if (loopWidth > container.clientWidth) {
-          container.scrollLeft = container.scrollLeft >= loopWidth
-            ? container.scrollLeft - loopWidth
-            : container.scrollLeft + elapsed * 0.012;
+        const width = loopWidth();
+        if (width > container.clientWidth) {
+          if (container.scrollLeft >= width) container.scrollLeft -= width;
+          container.scrollLeft += elapsed * 0.012;
+          slideshowAutoScrollTarget.current = container.scrollLeft;
         }
       }
       frame = requestAnimationFrame(animate);
@@ -707,7 +754,12 @@ function AlbumPage({
     frame = requestAnimationFrame(animate);
     return () => {
       cancelAnimationFrame(frame);
-      motionQuery.removeEventListener("change", setReducedMotion);
+      window.clearTimeout(slideshowResumeTimer.current);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", normalizePosition);
+      motionQuery.removeEventListener?.("change", setReducedMotion);
+      motionQuery.removeListener?.(setReducedMotion);
+      document.removeEventListener("visibilitychange", resetClock);
     };
   }, [allPhotos.length]);
 
@@ -715,8 +767,12 @@ function AlbumPage({
     setViewerMedia(item);
   };
 
-  const pauseSlideshow = () => {
-    slideshowPauseUntil.current = performance.now() + 900;
+  const pauseSlideshow = (delay = 1200) => {
+    slideshowPauseUntil.current = performance.now() + delay;
+    window.clearTimeout(slideshowResumeTimer.current);
+    slideshowResumeTimer.current = window.setTimeout(() => {
+      slideshowPauseUntil.current = performance.now();
+    }, delay);
   };
 
   const handleMediaDelete = (deletedId) => {
@@ -746,11 +802,26 @@ function AlbumPage({
             <div
               className="slideshow"
               ref={slideshowRef}
-              onPointerDown={pauseSlideshow}
-              onWheel={pauseSlideshow}
+              onPointerDown={() => pauseSlideshow(3000)}
+              onPointerUp={() => pauseSlideshow()}
+              onPointerCancel={() => pauseSlideshow()}
+              onTouchMove={() => pauseSlideshow()}
+              onWheel={() => pauseSlideshow()}
+              onScroll={(event) => {
+                const autoScrollTarget = slideshowAutoScrollTarget.current;
+                if (
+                  autoScrollTarget !== null &&
+                  Math.abs(event.currentTarget.scrollLeft - autoScrollTarget) < 1
+                ) {
+                  slideshowAutoScrollTarget.current = null;
+                  return;
+                }
+                slideshowAutoScrollTarget.current = null;
+                pauseSlideshow();
+              }}
             >
-              {allPhotos.length > 0 ? (
-                Array.from({ length: Math.max(2, 2 * Math.ceil(6 / allPhotos.length)) }, (_, copy) =>
+              {allPhotos.length >= 2 ? (
+                Array.from({ length: Math.max(2, 2 * Math.ceil(10 / allPhotos.length)) }, (_, copy) =>
                   allPhotos.map((item) => (
                     <button
                       key={`${copy}-${item.id}`}
@@ -762,6 +833,14 @@ function AlbumPage({
                     </button>
                   )),
                 )
+              ) : allPhotos.length === 1 ? (
+                <button
+                  type="button"
+                  className="slideshow-item"
+                  onClick={() => handleMediaClick(allPhotos[0])}
+                >
+                  <SignedImage path={allPhotos[0].file_path} />
+                </button>
               ) : (
                 exampleImages.map((src, index) => (
                   <figure key={src} className="slideshow-item">
@@ -856,6 +935,7 @@ function AlbumPage({
               onClose={() => setViewerMedia(null)}
               onDelete={handleMediaDelete}
               isOwner={isOwner}
+              notify={notify}
             />
           )}
         </>
@@ -997,7 +1077,7 @@ function SignedVideo({ path, onClick }) {
   );
 }
 
-function MediaViewer({ media, allMedia, onClose, onDelete, isOwner }) {
+function MediaViewer({ media, allMedia, onClose, onDelete, isOwner, notify }) {
   const [currentIndex, setCurrentIndex] = useState(
     allMedia.findIndex((m) => m.id === media.id),
   );
@@ -1022,7 +1102,7 @@ function MediaViewer({ media, allMedia, onClose, onDelete, isOwner }) {
       .from("album-media")
       .remove([currentMedia.file_path]);
     if (storageError) {
-      alert("Ошибка удаления файла: " + storageError.message);
+      notify(`Не удалось удалить файл: ${messageFrom(storageError)}`);
       setDeleting(false);
       return;
     }
@@ -1032,9 +1112,10 @@ function MediaViewer({ media, allMedia, onClose, onDelete, isOwner }) {
       .eq("id", currentMedia.id);
     setDeleting(false);
     if (error) {
-      alert("Ошибка удаления записи: " + error.message);
+      notify(`Не удалось удалить запись: ${messageFrom(error)}`);
       return;
     }
+    notify(`${mediaLabel === "видео" ? "Видео" : "Фото"} удалено.`, "success");
     onDelete(currentMedia.id);
     if (allMedia.length === 1) {
       onClose();
@@ -1085,6 +1166,7 @@ function MediaViewer({ media, allMedia, onClose, onDelete, isOwner }) {
       }}
     >
       <button
+        className="media-viewer-close"
         onClick={onClose}
         style={{
           position: "absolute",
@@ -1107,6 +1189,7 @@ function MediaViewer({ media, allMedia, onClose, onDelete, isOwner }) {
 
       {isOwner && (
         <button
+          className="media-viewer-delete"
           onClick={handleDelete}
           disabled={deleting}
           style={{
@@ -1133,6 +1216,7 @@ function MediaViewer({ media, allMedia, onClose, onDelete, isOwner }) {
 
       {currentIndex > 0 && (
         <button
+          className="media-viewer-prev"
           onClick={(e) => {
             e.stopPropagation();
             goPrev();
@@ -1158,6 +1242,7 @@ function MediaViewer({ media, allMedia, onClose, onDelete, isOwner }) {
 
       {currentIndex < allMedia.length - 1 && (
         <button
+          className="media-viewer-next"
           onClick={(e) => {
             e.stopPropagation();
             goNext();
@@ -1182,6 +1267,7 @@ function MediaViewer({ media, allMedia, onClose, onDelete, isOwner }) {
       )}
 
       <div
+        className="media-viewer-content"
         onClick={(e) => e.stopPropagation()}
         style={{
           maxWidth: "90vw",
@@ -1426,6 +1512,7 @@ function CreateAlbum({ done, notify }) {
     });
     setBusy(false);
     if (error) return notify(messageFrom(error));
+    notify("Альбом создан.", "success");
     done(data);
   };
   return (
@@ -1672,7 +1759,7 @@ function CreateFolder({ album, notify, close, onCreated }) {
     </form>
   );
 }
-function Share({ album, close }) {
+function Share({ album, notify, close }) {
   const link = `${appUrl}/a/${album.slug}`;
   return (
     <div className="share-modal">
@@ -1689,7 +1776,16 @@ function Share({ album, close }) {
         <a href={link} target="_blank" rel="noreferrer">
           {link}
         </a>
-        <button onClick={() => navigator.clipboard.writeText(link)}>
+        <button
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(link);
+              notify("Ссылка скопирована.", "success");
+            } catch {
+              notify("Не удалось скопировать ссылку.");
+            }
+          }}
+        >
           Копировать
         </button>
       </div>
@@ -1741,8 +1837,8 @@ function AlbumActions({ album, notify, close, onEdit, onDeleted }) {
     </div>
   );
 }
-function FolderContents({ folder, album, user, notify, onEdit }) {
-  const [files, setFiles] = useState([]);
+function FolderContents({ folder, album, user, notify, onEdit, initialFiles = [] }) {
+  const [files, setFiles] = useState(initialFiles);
   const [viewerMedia, setViewerMedia] = useState(null);
   const [isOwner, setIsOwner] = useState(false);
 
@@ -1788,12 +1884,13 @@ function FolderContents({ folder, album, user, notify, onEdit }) {
           onClose={() => setViewerMedia(null)}
           onDelete={handleMediaDelete}
           isOwner={isOwner}
+          notify={notify}
         />
       )}
     </div>
   );
 }
-function EditFolderModal({ folder, album, user, notify, close, onSaved, onDeleted }) {
+function EditFolderModal({ folder, album, user, notify, close, onSaved, onUploaded, onDeleted }) {
   const [name, setName] = useState(folder.name);
   const [color, setColor] = useState(folder.color || "#DCE9E3");
   const [saving, setSaving] = useState(false);
@@ -1830,49 +1927,93 @@ function EditFolderModal({ folder, album, user, notify, close, onSaved, onDelete
       <Field label="Цвет папки"><div className="color-row"><input aria-label="Цвет папки" type="color" value={color} onChange={(e) => setColor(e.target.value)} /><span>Выберите любой цвет в палитре</span></div></Field>
       <button className="primary" disabled={saving || deleting}><Palette size={15} />{saving ? "Сохраняем…" : "Сохранить изменения"}</button>
       <button className="danger-button action-button" type="button" onClick={remove} disabled={saving || deleting}><Trash2 size={16} />{deleting ? "Удаляем…" : "Удалить папку"}</button>
-      <UploadModal album={album} folder={folder} user={user} notify={notify} />
+      <UploadModal
+        album={album}
+        folder={folder}
+        user={user}
+        notify={notify}
+        onUploaded={onUploaded}
+      />
     </form>
   );
 }
 function UploadModal({ album, folder, user, notify, onUploaded }) {
   const input = useRef(null),
     [busy, setBusy] = useState(false),
-    [count, setCount] = useState(0);
+    [count, setCount] = useState(0),
+    [errorMessage, setErrorMessage] = useState("");
+  const uploadErrorMessage = (error) => {
+    const message = messageFrom(error);
+    const normalized = message.toLowerCase();
+    if (
+      normalized.includes("album_id") ||
+      normalized.includes("schema cache") ||
+      normalized.includes("could not find")
+    ) {
+      return "Хранилище альбома ещё не обновлено. Примените миграцию 20260825003000_fix_folder_media_uploads.sql в Supabase и перезагрузите страницу.";
+    }
+    if (
+      normalized.includes("row-level security") ||
+      normalized.includes("permission denied") ||
+      normalized.includes("not allowed")
+    ) {
+      return "Нет прав на загрузку в этот альбом. Войдите владельцем альбома и убедитесь, что миграция 20260825003000_fix_folder_media_uploads.sql применена в Supabase.";
+    }
+    return `Не удалось загрузить файл: ${message}`;
+  };
   const upload = async (e) => {
     const picked = Array.from(e.target.files || []).slice(0, 35);
     if (!picked.length) return;
-    setBusy(true);
-    setCount(picked.length);
-    const added = [];
-    for (const file of picked) {
-      const safe = file.name.replace(/[^a-zA-Zа-яА-Я0-9._-]/g, "_");
-      const path = `${user.id}/${album.id}/${folder?.id || "direct"}/${crypto.randomUUID()}-${safe}`;
-      const { error: uploadError } = await supabase.storage
-        .from("album-media")
-        .upload(path, file);
-      if (uploadError) {
-        setBusy(false);
-        return notify(messageFrom(uploadError));
-      }
-      const { data, error } = await supabase
-        .from("media")
-        .insert({
-          album_id: album.id,
-          folder_id: folder?.id || null,
-          file_path: path,
-          media_type: file.type.startsWith("video/") ? "video" : "image",
-        })
-        .select()
-        .single();
-      if (error) {
-        setBusy(false);
-        return notify(messageFrom(error));
-      }
-      added.push(data);
+    const files = picked.filter(
+      (file) => file.type.startsWith("image/") || file.type.startsWith("video/"),
+    );
+    if (!files.length) {
+      setErrorMessage("Выберите фото или видео в поддерживаемом формате.");
+      e.target.value = "";
+      return;
     }
-    setBusy(false);
-    notify(`${added.length} файлов добавлено.`, "success");
-    onUploaded?.(added);
+    setErrorMessage("");
+    setBusy(true);
+    setCount(files.length);
+    const added = [];
+    try {
+      for (const file of files) {
+        const safe = file.name.replace(/[^a-zA-Zа-яА-Я0-9._-]/g, "_");
+        const path = `${user.id}/${album.id}/${folder?.id || "direct"}/${crypto.randomUUID()}-${safe}`;
+        const { error: uploadError } = await supabase.storage
+          .from("album-media")
+          .upload(path, file);
+        if (uploadError) throw uploadError;
+        const { data, error } = await supabase
+          .from("media")
+          .insert({
+            album_id: album.id,
+            folder_id: folder?.id || null,
+            file_path: path,
+            media_type: file.type.startsWith("video/") ? "video" : "image",
+          })
+          .select()
+          .single();
+        if (error) {
+          await supabase.storage.from("album-media").remove([path]);
+          throw error;
+        }
+        added.push(data);
+      }
+      const skipped = picked.length - files.length;
+      notify(
+        `${added.length} файлов добавлено.${skipped ? ` Пропущено неподдерживаемых: ${skipped}.` : ""}`,
+        "success",
+      );
+      onUploaded?.(added);
+    } catch (error) {
+      const message = uploadErrorMessage(error);
+      setErrorMessage(message);
+      notify(message);
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = "";
+    }
   };
   return (
     <div className="upload-area">
@@ -1884,11 +2025,12 @@ function UploadModal({ album, folder, user, notify, onUploaded }) {
         multiple
         onChange={upload}
       />
-      <button onClick={() => input.current.click()} disabled={busy}>
+      <button type="button" onClick={() => input.current?.click()} disabled={busy}>
         <Upload size={19} />
         <b>{busy ? `Загружаем ${count} файлов…` : "Добавить фото или видео"}</b>
         <span>До 35 файлов за одну загрузку</span>
       </button>
+      {errorMessage && <p className="form-message error" role="alert">{errorMessage}</p>}
     </div>
   );
 }
@@ -1960,11 +2102,32 @@ function SettingsModal({ user, profile, notify, close }) {
     </form>
   );
 }
-function Toast({ text, type, close }) {
+function ToastViewport({ toasts, dismiss }) {
   return (
-    <div className={`toast ${type}`}>
+    <div className="toast-viewport" aria-label="Уведомления">
+      {toasts.map((toast) => (
+        <Toast key={toast.id} {...toast} close={() => dismiss(toast.id)} />
+      ))}
+    </div>
+  );
+}
+function Toast({ text, type, close }) {
+  const [leaving, setLeaving] = useState(false);
+  const dismiss = () => {
+    setLeaving(true);
+    window.setTimeout(close, 180);
+  };
+  useEffect(() => {
+    const timeout = window.setTimeout(dismiss, type === "error" ? 9000 : 4500);
+    return () => window.clearTimeout(timeout);
+  }, [type]);
+  return (
+    <div className={`toast ${type} ${leaving ? "is-leaving" : ""}`} role={type === "error" ? "alert" : "status"}>
+      <span className="toast-icon" aria-hidden="true">
+        {type === "success" ? <Check size={18} /> : <CircleAlert size={18} />}
+      </span>
       <span>{text}</span>
-      <button onClick={close}>
+      <button type="button" className="toast-close" onClick={dismiss} aria-label="Закрыть уведомление">
         <X size={16} />
       </button>
     </div>
