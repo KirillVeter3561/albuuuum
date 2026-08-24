@@ -25,6 +25,8 @@ create table public.albums (
   slug text not null unique,
   password_hash text not null,
   background text not null,
+  content_background text not null default '#FFFEFA',
+  font_family text not null default 'Nunito',
   created_at timestamptz not null default now()
 );
 
@@ -83,16 +85,17 @@ create policy "owners update folders" on public.album_folders for update to auth
 create policy "owners delete folders" on public.album_folders for delete to authenticated using (exists(select 1 from public.albums album where album.id = album_id and album.owner_id = auth.uid()));
 create policy "members read media" on public.media for select to authenticated using (public.is_album_member(album_id));
 create policy "owners upload media rows" on public.media for insert to authenticated with check (exists(select 1 from public.albums album where album.id = album_id and album.owner_id = auth.uid()));
+create policy "owners update media rows" on public.media for update to authenticated using (exists(select 1 from public.albums album where album.id = album_id and album.owner_id = auth.uid())) with check (exists(select 1 from public.albums album where album.id = album_id and album.owner_id = auth.uid()));
 create policy "owners delete media" on public.media for delete to authenticated using (exists(select 1 from public.albums album where album.id = album_id and album.owner_id = auth.uid()));
 
-create or replace function public.create_album(album_title text, album_slug text, album_password text, album_background text)
+create or replace function public.create_album(album_title text, album_slug text, album_password text, album_background text, album_content_background text default '#FFFEFA', album_font_family text default 'Nunito')
 returns public.albums language plpgsql security definer set search_path = public as $$
 declare result public.albums;
 begin
   if auth.uid() is null then raise exception 'Нужно войти в аккаунт'; end if;
   if char_length(album_password) < 8 then raise exception 'Пароль должен содержать не менее 8 символов'; end if;
-  insert into albums(owner_id,title,slug,password_hash,background)
-  values(auth.uid(),album_title,album_slug,extensions.crypt(album_password,extensions.gen_salt('bf')),album_background)
+  insert into albums(owner_id,title,slug,password_hash,background,content_background,font_family)
+  values(auth.uid(),album_title,album_slug,extensions.crypt(album_password,extensions.gen_salt('bf')),album_background,album_content_background,album_font_family)
   returning * into result;
   insert into album_access(album_id,user_id) values(result.id,auth.uid());
   return result;
@@ -102,6 +105,17 @@ create or replace function public.check_album_password(album_slug text, album_pa
 returns boolean language sql security definer set search_path = public as $$
   select exists(select 1 from albums where slug = album_slug and password_hash = extensions.crypt(album_password,password_hash));
 $$;
+
+create or replace function public.change_album_password(target_album_id uuid, new_password text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Нужно войти в аккаунт'; end if;
+  if char_length(new_password) < 8 then raise exception 'Пароль должен содержать не менее 8 символов'; end if;
+  update public.albums
+  set password_hash = extensions.crypt(new_password, extensions.gen_salt('bf'))
+  where id = target_album_id and owner_id = auth.uid();
+  if not found then raise exception 'Недостаточно прав для изменения альбома'; end if;
+end; $$;
 
 create or replace function public.unlock_album(album_slug text, album_password text)
 returns public.albums language plpgsql security definer set search_path = public as $$
@@ -114,8 +128,9 @@ begin
   return result;
 end; $$;
 
-grant execute on function public.create_album(text,text,text,text) to authenticated;
+grant execute on function public.create_album(text,text,text,text,text,text) to authenticated;
 grant execute on function public.check_album_password(text,text) to anon,authenticated;
+grant execute on function public.change_album_password(uuid,text) to authenticated;
 grant execute on function public.unlock_album(text,text) to authenticated;
 grant execute on function public.is_album_member(uuid) to authenticated;
 

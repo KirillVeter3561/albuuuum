@@ -53,6 +53,28 @@ const backgrounds = [
   "#DCE7F0",
   "#EEE7D9",
 ];
+const albumFonts = [
+  { value: "Nunito", label: "Нежный — Nunito" },
+  { value: "Manrope", label: "Современный — Manrope" },
+  { value: "Comfortaa", label: "Мягкий — Comfortaa" },
+  { value: "Caveat", label: "Тёплый — Caveat" },
+  { value: "Lora", label: "Классический — Lora" },
+  { value: "Philosopher", label: "Сказочный — Philosopher" },
+  { value: "Marck Script", label: "Рукописный — Marck Script" },
+  { value: "Cormorant Garamond", label: "Изящный — Cormorant Garamond" },
+  { value: "PT Sans", label: "Простой — PT Sans" },
+  { value: "Montserrat", label: "Чистый — Montserrat" },
+  { value: "Rubik", label: "Дружелюбный — Rubik" },
+  { value: "Yeseva One", label: "Выразительный — Yeseva One" },
+];
+const warmAlbumPhrases = [
+  "Место, где бережно хранятся самые тёплые воспоминания.",
+  "Здесь улыбки остаются рядом, даже спустя годы.",
+  "Маленькие мгновения, из которых складывается большое счастье.",
+  "Пусть у каждой фотографии будет своя добрая история.",
+  "Дом для любимых лиц, объятий и счастливых дней.",
+  "Самое важное всегда хочется сохранить рядом.",
+];
 const exampleImages = [
   "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80",
   "https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=1000&q=80",
@@ -82,13 +104,14 @@ function PasswordField({
   placeholder = "Минимум 6 символов",
   autoFocus = false,
   minLength = 6,
+  required = true,
 }) {
   const [visible, setVisible] = useState(false);
   return (
     <Field label={label}>
       <span className="password-input">
         <input
-          required
+          required={required}
           autoFocus={autoFocus}
           minLength={minLength}
           type={visible ? "text" : "password"}
@@ -138,14 +161,25 @@ function App() {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+    let mounted = true;
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!mounted) return;
+      if (error) notify(messageFrom(error));
+      setSession(data?.session || null);
       setReady(true);
+    }).catch((error) => {
+      if (mounted) {
+        notify(messageFrom(error));
+        setReady(true);
+      }
     });
     const { data } = supabase.auth.onAuthStateChange((_event, next) =>
       setSession(next),
     );
-    return () => data.subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      data.subscription.unsubscribe();
+    };
   }, []);
   useEffect(() => {
     if (!session) {
@@ -153,20 +187,24 @@ function App() {
       setAlbums([]);
       setActive(null);
       setPage("home");
+      setModal(null);
       return;
     }
+    let cancelled = false;
     const load = async () => {
       const user = session.user;
-      const [{ data: userProfile }, { data, error }] = await Promise.all([
+      const [{ data: userProfile, error: profileError }, { data, error }] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
         supabase
           .from("albums")
           .select(
-            "id,title,slug,background,created_at,album_folders(id),media(id)",
+            "id,owner_id,title,slug,background,content_background,font_family,created_at,album_folders(id),media(id)",
           )
           .eq("owner_id", user.id)
           .order("created_at", { ascending: false }),
       ]);
+      if (cancelled) return;
+      if (profileError) notify(messageFrom(profileError));
       if (error) notify(messageFrom(error));
       setProfile(
         userProfile || {
@@ -180,12 +218,26 @@ function App() {
       );
     };
     load();
+    return () => {
+      cancelled = true;
+    };
   }, [session]);
   useEffect(() => {
     if (!session) return;
     const pending = sessionStorage.getItem("album-invite");
     if (!pending) return;
-    const { password, sharedSlug } = JSON.parse(pending);
+    let invite;
+    try {
+      invite = JSON.parse(pending);
+    } catch {
+      sessionStorage.removeItem("album-invite");
+      return;
+    }
+    const { password, sharedSlug } = invite;
+    if (!password || !sharedSlug) {
+      sessionStorage.removeItem("album-invite");
+      return;
+    }
     supabase
       .rpc("unlock_album", { album_slug: sharedSlug, album_password: password })
       .then(({ data, error }) => {
@@ -226,11 +278,11 @@ function App() {
           album={active}
           user={user}
           openCreate={() => setModal("create-album")}
-          openFolder={(folder) => setModal({ type: "folder", folder })}
+          openFolder={(folder) => setModal({ type: "folder-contents", folder })}
           openUpload={() => setModal({ type: "upload", folder: null })}
           openFolderCreate={() => setModal("create-folder")}
           openProfile={() => setPage("profile")}
-          openEditAlbum={() => setModal("edit-album")}
+          openEditAlbum={() => setModal({ type: "edit-album", album: active })}
         />
       ) : (
         <Dashboard
@@ -244,6 +296,7 @@ function App() {
           }}
           create={() => setModal("create-album")}
           settings={() => setModal("settings")}
+          manageAlbum={(album) => setModal({ type: "album-actions", album })}
         />
       )}
       {modal && (
@@ -261,14 +314,29 @@ function App() {
           {modal?.type === "share" && (
             <Share album={modal.album} close={() => setModal(null)} />
           )}{" "}
-          {modal?.type === "folder" && (
-            <FolderModal
+          {modal?.type === "folder-contents" && (
+            <FolderContents
               folder={modal.folder}
               album={active}
               user={user}
               notify={notify}
+              onEdit={() => setModal({ type: "edit-folder", folder: modal.folder })}
             />
           )}{" "}
+          {modal?.type === "edit-folder" && (
+            <EditFolderModal
+              folder={modal.folder}
+              album={active}
+              user={user}
+              notify={notify}
+              close={() => setModal(null)}
+              onSaved={() => setActive((current) => current ? { ...current } : current)}
+              onDeleted={() => {
+                setActive((current) => current ? { ...current } : current);
+                setModal(null);
+              }}
+            />
+          )} {" "}
           {modal?.type === "upload" && (
             <UploadModal
               album={active}
@@ -282,6 +350,7 @@ function App() {
               album={active}
               notify={notify}
               close={() => setModal(null)}
+              onCreated={() => setActive((current) => current ? { ...current } : current)}
             />
           )}{" "}
           {modal === "settings" && (
@@ -292,25 +361,29 @@ function App() {
               close={() => setModal(null)}
             />
           )}{" "}
-          {modal === "edit-album" && active && (
+          {modal?.type === "edit-album" && modal.album && (
             <EditAlbumModal
-              album={active}
+              album={modal.album}
               user={user}
               notify={notify}
               close={() => setModal(null)}
-              onAlbumDeleted={() => {
+              onAlbumUpdated={(updatedAlbum) => {
+                setActive(updatedAlbum);
+                setAlbums((items) => items.map((item) => item.id === updatedAlbum.id ? { ...item, ...updatedAlbum } : item));
+              }}
+            />
+          )}
+          {modal?.type === "album-actions" && (
+            <AlbumActions
+              album={modal.album}
+              notify={notify}
+              close={() => setModal(null)}
+              onEdit={() => setModal({ type: "edit-album", album: modal.album })}
+              onDeleted={(albumId) => {
+                setAlbums((items) => items.filter((item) => item.id !== albumId));
+                setActive((current) => (current?.id === albumId ? null : current));
                 setModal(null);
-                setActive(null);
                 setPage("profile");
-                // Перезагружаем список альбомов
-                supabase
-                  .from("albums")
-                  .select(
-                    "id,title,slug,background,created_at,album_folders(id),media(id)",
-                  )
-                  .eq("owner_id", user.id)
-                  .order("created_at", { ascending: false })
-                  .then(({ data }) => setAlbums(data || []));
               }}
             />
           )}
@@ -564,23 +637,17 @@ function AlbumPage({
   const [media, setMedia] = useState([]);
   const [allPhotos, setAllPhotos] = useState([]);
   const [viewerMedia, setViewerMedia] = useState(null);
+  const [warmPhrase] = useState(
+    () => warmAlbumPhrases[Math.floor(Math.random() * warmAlbumPhrases.length)],
+  );
   const slideshowRef = useRef(null);
+  const slideshowPauseUntil = useRef(0);
   const [isOwner, setIsOwner] = useState(false);
 
   useEffect(() => {
     if (!album) return;
-    
-    // Проверяем, является ли пользователь владельцем
-    supabase
-      .from("albums")
-      .select("owner_id")
-      .eq("id", album.id)
-      .single()
-      .then(({ data }) => {
-        setIsOwner(data?.owner_id === user.id);
-      });
-
-    // Загружаем папки и медиа без папок
+    let cancelled = false;
+    setIsOwner(album.owner_id === user.id);
     Promise.all([
       supabase
         .from("album_folders")
@@ -594,6 +661,7 @@ function AlbumPage({
         .is("folder_id", null)
         .order("created_at", { ascending: false }),
     ]).then(([folderResult, mediaResult]) => {
+      if (cancelled) return;
       setFolders(folderResult.data || []);
       setMedia(mediaResult.data || []);
     });
@@ -606,32 +674,49 @@ function AlbumPage({
       .eq("media_type", "image")
       .order("created_at", { ascending: false })
       .then(({ data }) => {
+        if (cancelled) return;
         setAllPhotos(data || []);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [album, user.id]);
 
-  // Авто-скролл слайдшоу
   useEffect(() => {
-    if (!slideshowRef.current || allPhotos.length === 0) return;
-    
     const container = slideshowRef.current;
-    let scrollPosition = 0;
-    const scrollSpeed = 0.5; // пикселей за кадр
-
-    const animate = () => {
-      scrollPosition += scrollSpeed;
-      if (scrollPosition >= container.scrollWidth / 2) {
-        scrollPosition = 0;
+    if (!container || !allPhotos.length) return;
+    const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let reducedMotion = motionQuery.matches;
+    let frame;
+    let lastTime = performance.now();
+    const setReducedMotion = (event) => { reducedMotion = event.matches; };
+    motionQuery.addEventListener("change", setReducedMotion);
+    const animate = (time) => {
+      const elapsed = time - lastTime;
+      lastTime = time;
+      if (!reducedMotion && !document.hidden && time >= slideshowPauseUntil.current) {
+        const loopWidth = container.scrollWidth / 2;
+        if (loopWidth > container.clientWidth) {
+          container.scrollLeft = container.scrollLeft >= loopWidth
+            ? container.scrollLeft - loopWidth
+            : container.scrollLeft + elapsed * 0.012;
+        }
       }
-      container.scrollLeft = scrollPosition;
+      frame = requestAnimationFrame(animate);
     };
-
-    const interval = setInterval(animate, 30);
-    return () => clearInterval(interval);
-  }, [allPhotos]);
+    frame = requestAnimationFrame(animate);
+    return () => {
+      cancelAnimationFrame(frame);
+      motionQuery.removeEventListener("change", setReducedMotion);
+    };
+  }, [allPhotos.length]);
 
   const handleMediaClick = (item) => {
     setViewerMedia(item);
+  };
+
+  const pauseSlideshow = () => {
+    slideshowPauseUntil.current = performance.now() + 900;
   };
 
   const handleMediaDelete = (deletedId) => {
@@ -651,45 +736,35 @@ function AlbumPage({
               background: album.background?.startsWith("#")
                 ? album.background
                 : `url(${album.background}) center/cover`,
+              "--album-font": `'${album.font_family || "Nunito"}'`,
             }}
           >
             <p className="eyebrow">✦ СЕМЕЙНАЯ ИСТОРИЯ ✦</p>
             <h1>{album.title}</h1>
-            <p>Место, в котором живут самые тёплые воспоминания.</p>
+            <p>{warmPhrase}</p>
             
             <div
               className="slideshow"
               ref={slideshowRef}
-              style={{
-                display: "flex",
-                gap: "16px",
-                overflowX: "auto",
-                scrollBehavior: "smooth",
-                paddingBottom: "10px",
-              }}
+              onPointerDown={pauseSlideshow}
+              onWheel={pauseSlideshow}
             >
               {allPhotos.length > 0 ? (
-                <>
-                  {/* Дублируем фото для бесшовного скролла */}
-                  {[...allPhotos, ...allPhotos].map((item, index) => (
-                    <div
-                      key={`${item.id}-${index}`}
-                      style={{
-                        minWidth: "280px",
-                        height: "180px",
-                        borderRadius: "8px",
-                        overflow: "hidden",
-                        cursor: "pointer",
-                      }}
+                Array.from({ length: Math.max(2, 2 * Math.ceil(6 / allPhotos.length)) }, (_, copy) =>
+                  allPhotos.map((item) => (
+                    <button
+                      key={`${copy}-${item.id}`}
+                      type="button"
+                      className="slideshow-item"
                       onClick={() => handleMediaClick(item)}
                     >
                       <SignedImage path={item.file_path} />
-                    </div>
-                  ))}
-                </>
+                    </button>
+                  )),
+                )
               ) : (
                 exampleImages.map((src, index) => (
-                  <figure key={src} style={{ minWidth: "280px" }}>
+                  <figure key={src} className="slideshow-item">
                     <img src={src} alt="Пример фотографии" />
                     <figcaption>Пример</figcaption>
                   </figure>
@@ -698,7 +773,13 @@ function AlbumPage({
             </div>
           </section>
 
-          <section className="content">
+          <section
+            className="content"
+            style={{
+              background: album.content_background || "#FFFEFA",
+              "--album-font": `'${album.font_family || "Nunito"}'`,
+            }}
+          >
             <div className="section-heading">
               <div>
                 <p className="eyebrow">ВСЕ ВОСПОМИНАНИЯ</p>
@@ -738,7 +819,7 @@ function AlbumPage({
 
             {media.length > 0 && (
               <section>
-                <h3 className="subheading">Без папки</h3>
+                <h3 className="subheading">Все видео и фото</h3>
                 <MediaGrid items={media} onMediaClick={handleMediaClick} />
               </section>
             )}
@@ -771,7 +852,7 @@ function AlbumPage({
           {viewerMedia && (
             <MediaViewer
               media={viewerMedia}
-              allMedia={media}
+              allMedia={allPhotos.some((item) => item.id === viewerMedia.id) ? allPhotos : media}
               onClose={() => setViewerMedia(null)}
               onDelete={handleMediaDelete}
               isOwner={isOwner}
@@ -845,6 +926,14 @@ function SignedImage({ path, onClick }) {
       src={src}
       alt="Воспоминание"
       onClick={onClick}
+      onKeyDown={(event) => {
+        if (onClick && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
       style={{ cursor: onClick ? "pointer" : "default" }}
     />
   ) : (
@@ -864,11 +953,26 @@ function SignedVideo({ path, onClick }) {
     <div
       className="video-card"
       onClick={onClick}
+      onKeyDown={(event) => {
+        if (onClick && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={onClick ? "Открыть видео" : undefined}
       style={{ cursor: "pointer", position: "relative" }}
     >
       {src ? (
         <>
-          <video src={src} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <video
+            src={src}
+            muted
+            playsInline
+            preload="metadata"
+            style={{ width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none" }}
+          />
           <div
             style={{
               position: "absolute",
@@ -911,7 +1015,8 @@ function MediaViewer({ media, allMedia, onClose, onDelete, isOwner }) {
   }, [currentMedia]);
 
   const handleDelete = async () => {
-    if (!window.confirm("Удалить это фото или видео?")) return;
+    const mediaLabel = currentMedia.media_type === "video" ? "видео" : "фото";
+    if (!window.confirm(`Удалить это ${mediaLabel}?`)) return;
     setDeleting(true);
     const { error: storageError } = await supabase.storage
       .from("album-media")
@@ -1136,6 +1241,7 @@ function Dashboard({
   choose,
   create,
   settings,
+  manageAlbum,
 }) {
   const logout = () => supabase.auth.signOut();
   return (
@@ -1236,7 +1342,17 @@ function Dashboard({
                     Открыть альбом →
                   </button>
                 </section>
-                <MoreHorizontal size={18} />
+                <button
+                  type="button"
+                  className="album-more"
+                  aria-label={`Действия с альбомом «${album.title}»`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    manageAlbum(album);
+                  }}
+                >
+                  <MoreHorizontal size={18} />
+                </button>
               </article>
             ))}
           </div>
@@ -1266,9 +1382,16 @@ function SignedAvatar({ path }) {
 }
 
 function Modal({ children, close }) {
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape" && !document.querySelector(".media-viewer-backdrop")) close();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [close]);
   return (
-    <div className="modal-backdrop" onMouseDown={close}>
-      <section className="modal" onMouseDown={(e) => e.stopPropagation()}>
+    <div className="modal-backdrop" onPointerDown={close}>
+      <section className="modal" onPointerDown={(e) => e.stopPropagation()}>
         <button className="close" onClick={close}>
           <X size={19} />
         </button>
@@ -1280,7 +1403,9 @@ function Modal({ children, close }) {
 function CreateAlbum({ done, notify }) {
   const [title, setTitle] = useState(""),
     [password, setPassword] = useState(""),
-    [background, setBackground] = useState(backgrounds[0]),
+    [background, setBackground] = useState(backgrounds[4]),
+    [contentBackground, setContentBackground] = useState("#FFFEFA"),
+    [fontFamily, setFontFamily] = useState("Nunito"),
     [busy, setBusy] = useState(false);
   const level = score(password);
   const submit = async (e) => {
@@ -1296,6 +1421,8 @@ function CreateAlbum({ done, notify }) {
       album_slug: slug,
       album_password: password,
       album_background: background,
+      album_content_background: contentBackground,
+      album_font_family: fontFamily,
     });
     setBusy(false);
     if (error) return notify(messageFrom(error));
@@ -1339,17 +1466,28 @@ function CreateAlbum({ done, notify }) {
           }
         </span>
       </div>
-      <p className="field-label">Выберите фон</p>
-      <div className="backgrounds">
-        {backgrounds.map((color) => (
-          <button
-            type="button"
-            aria-label="Выбрать фон"
-            key={color}
-            style={{ background: color }}
-            className={background === color ? "chosen" : ""}
-            onClick={() => setBackground(color)}
-          />
+      <div className="album-preview" style={{ background, fontFamily: `'${fontFamily}', sans-serif` }}>
+        <span>СЕМЕЙНАЯ ИСТОРИЯ</span>
+        <b>{title || "Название альбома"}</b>
+        <small>{warmAlbumPhrases[0]}</small>
+        <i style={{ background: contentBackground }} />
+      </div>
+      <Field label="Цвет верхней части альбома">
+        <input type="color" value={background} onChange={(e) => setBackground(e.target.value)} />
+      </Field>
+      <Field label="Цвет нижней, светлой части">
+        <input type="color" value={contentBackground} onChange={(e) => setContentBackground(e.target.value)} />
+      </Field>
+      <Field label="Шрифт альбома">
+        <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)}>
+          {albumFonts.map((font) => <option key={font.value} value={font.value}>{font.label}</option>)}
+        </select>
+      </Field>
+      <div className="font-samples" aria-label="Выбор шрифта">
+        {albumFonts.map((font) => (
+          <button type="button" key={font.value} className={fontFamily === font.value ? "chosen" : ""} onClick={() => setFontFamily(font.value)} style={{ fontFamily: `'${font.value}', sans-serif` }}>
+            Аа
+          </button>
         ))}
       </div>
       <button className="primary" disabled={busy || level < 2}>
@@ -1359,11 +1497,15 @@ function CreateAlbum({ done, notify }) {
   );
 }
 
-function EditAlbumModal({ album, user, notify, close, onAlbumDeleted }) {
+function EditAlbumModal({ album, user, notify, close, onAlbumUpdated }) {
   const [background, setBackground] = useState(album.background);
+  const [contentBackground, setContentBackground] = useState(
+    album.content_background || "#FFFEFA",
+  );
+  const [fontFamily, setFontFamily] = useState(album.font_family || "Nunito");
+  const [password, setPassword] = useState("");
   const [customBgFile, setCustomBgFile] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const fileInput = useRef(null);
 
   const handleCustomBackground = async (e) => {
@@ -1393,54 +1535,32 @@ function EditAlbumModal({ album, user, notify, close, onAlbumDeleted }) {
 
   const saveChanges = async () => {
     setBusy(true);
-    const { error } = await supabase
+    const updates = { background, content_background: contentBackground, font_family: fontFamily };
+    const { error: albumError } = await supabase
       .from("albums")
-      .update({ background })
+      .update(updates)
       .eq("id", album.id);
     
+    if (albumError) {
+      setBusy(false);
+      notify(messageFrom(albumError));
+      return;
+    }
+    if (password) {
+      const { error: passwordError } = await supabase.rpc("change_album_password", {
+        target_album_id: album.id,
+        new_password: password,
+      });
+      if (passwordError) {
+        setBusy(false);
+        notify(messageFrom(passwordError));
+        return;
+      }
+    }
     setBusy(false);
-    if (error) {
-      notify(messageFrom(error));
-      return;
-    }
-    notify("Альбом обновлён.", "success");
+    notify(password ? "Альбом и пароль обновлены." : "Альбом обновлён.", "success");
+    onAlbumUpdated?.({ ...album, ...updates });
     close();
-    window.location.reload(); // Перезагрузим страницу для обновления фона
-  };
-
-  const deleteAlbum = async () => {
-    if (
-      !window.confirm(
-        `Удалить альбом "${album.title}" и все его содержимое? Это действие нельзя отменить.`,
-      )
-    )
-      return;
-
-    setDeleting(true);
-
-    // Удаляем все медиа файлы из storage
-    const { data: mediaFiles } = await supabase
-      .from("media")
-      .select("file_path")
-      .eq("album_id", album.id);
-
-    if (mediaFiles && mediaFiles.length > 0) {
-      const paths = mediaFiles.map((m) => m.file_path);
-      await supabase.storage.from("album-media").remove(paths);
-    }
-
-    // Удаляем сам альбом (каскадно удалятся связанные записи благодаря ON DELETE CASCADE)
-    const { error } = await supabase.from("albums").delete().eq("id", album.id);
-
-    setDeleting(false);
-
-    if (error) {
-      notify(messageFrom(error));
-      return;
-    }
-
-    notify("Альбом удалён.", "success");
-    onAlbumDeleted?.();
   };
 
   return (
@@ -1448,19 +1568,31 @@ function EditAlbumModal({ album, user, notify, close, onAlbumDeleted }) {
       <p className="eyebrow">НАСТРОЙКИ АЛЬБОМА</p>
       <h2>{album.title}</h2>
 
-      <p className="field-label">Выберите фон</p>
-      <div className="backgrounds">
-        {backgrounds.map((color) => (
-          <button
-            type="button"
-            aria-label="Выбрать фон"
-            key={color}
-            style={{ background: color }}
-            className={background === color ? "chosen" : ""}
-            onClick={() => setBackground(color)}
-          />
-        ))}
+      <div className="album-preview" style={{ background, fontFamily: `'${fontFamily}', sans-serif` }}>
+        <span>СЕМЕЙНАЯ ИСТОРИЯ</span>
+        <b>{album.title}</b>
+        <small>{warmAlbumPhrases[0]}</small>
+        <i style={{ background: contentBackground }} />
       </div>
+      <Field label="Цвет верхней части альбома">
+        <input type="color" value={background} onChange={(e) => setBackground(e.target.value)} />
+      </Field>
+      <Field label="Цвет нижней, светлой части">
+        <input type="color" value={contentBackground} onChange={(e) => setContentBackground(e.target.value)} />
+      </Field>
+      <Field label="Шрифт альбома">
+        <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)}>
+          {albumFonts.map((font) => <option key={font.value} value={font.value}>{font.label}</option>)}
+        </select>
+      </Field>
+      <PasswordField
+        label="Поменять пароль"
+        value={password}
+        onChange={(event) => setPassword(event.target.value)}
+        placeholder="Оставьте пустым, чтобы не менять"
+        minLength={8}
+        required={false}
+      />
 
       <Field label="Или загрузите своё изображение">
         <input
@@ -1490,31 +1622,11 @@ function EditAlbumModal({ album, user, notify, close, onAlbumDeleted }) {
         {busy ? "Сохраняем…" : "Сохранить изменения"}
       </button>
 
-      <hr style={{ margin: "30px 0", border: "none", borderTop: "1px solid #e0e0e0" }} />
-
-      <h3 style={{ color: "#d32f2f", marginBottom: "10px" }}>Опасная зона</h3>
-      <p style={{ fontSize: "14px", color: "#666", marginBottom: "15px" }}>
-        Удаление альбома необратимо. Все фото, видео и папки будут удалены.
-      </p>
-      <button
-        className="secondary"
-        onClick={deleteAlbum}
-        disabled={deleting}
-        style={{
-          width: "100%",
-          background: deleting ? "#ccc" : "#ffebee",
-          color: deleting ? "#666" : "#d32f2f",
-          border: "1px solid #d32f2f",
-        }}
-      >
-        <Trash2 size={16} />
-        {deleting ? "Удаляем…" : "Удалить альбом"}
-      </button>
     </div>
   );
 }
 
-function CreateFolder({ album, notify, close }) {
+function CreateFolder({ album, notify, close, onCreated }) {
   const [name, setName] = useState(""),
     [color, setColor] = useState("#DCE9E3"),
     [busy, setBusy] = useState(false);
@@ -1527,6 +1639,7 @@ function CreateFolder({ album, notify, close }) {
     setBusy(false);
     if (error) return notify(messageFrom(error));
     notify("Папка создана.", "success");
+    onCreated?.();
     close();
   };
   return (
@@ -1586,85 +1699,88 @@ function Share({ album, close }) {
     </div>
   );
 }
-function FolderModal({ folder, album, user, notify }) {
-  const [name, setName] = useState(folder.name);
-  const [color, setColor] = useState(folder.color || "#DCE9E3");
+function AlbumActions({ album, notify, close, onEdit, onDeleted }) {
+  const [busy, setBusy] = useState(false);
+  const link = `${appUrl}/a/${album.slug}`;
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      notify("Ссылка скопирована.", "success");
+    } catch {
+      notify("Не удалось скопировать ссылку.");
+    }
+  };
+  const deleteAlbum = async () => {
+    if (!window.confirm(`Удалить альбом «${album.title}» со всеми файлами? Это нельзя отменить.`)) return;
+    setBusy(true);
+    const { data: files, error: filesError } = await supabase.from("media").select("file_path").eq("album_id", album.id);
+    if (filesError) {
+      setBusy(false);
+      return notify(messageFrom(filesError));
+    }
+    const { error: storageError } = files?.length
+      ? await supabase.storage.from("album-media").remove(files.map((file) => file.file_path))
+      : { error: null };
+    if (storageError) {
+      setBusy(false);
+      return notify(messageFrom(storageError));
+    }
+    const { error } = await supabase.from("albums").delete().eq("id", album.id);
+    setBusy(false);
+    if (error) return notify(messageFrom(error));
+    notify("Альбом удалён.", "success");
+    onDeleted(album.id);
+  };
+  return (
+    <div className="album-actions-modal">
+      <p className="eyebrow">ДЕЙСТВИЯ С АЛЬБОМОМ</p>
+      <h2>{album.title}</h2>
+      <button className="secondary action-button" onClick={copyLink}>Скопировать ссылку</button>
+      <button className="primary action-button" onClick={onEdit}>Изменить альбом</button>
+      <button className="danger-button action-button" onClick={deleteAlbum} disabled={busy}><Trash2 size={16} />Удалить альбом</button>
+    </div>
+  );
+}
+function FolderContents({ folder, album, user, notify, onEdit }) {
   const [files, setFiles] = useState([]);
-  const [saving, setSaving] = useState(false);
   const [viewerMedia, setViewerMedia] = useState(null);
   const [isOwner, setIsOwner] = useState(false);
 
   useEffect(() => {
-    // Проверяем владельца
-    supabase
-      .from("albums")
-      .select("owner_id")
-      .eq("id", album.id)
-      .single()
-      .then(({ data }) => {
-        setIsOwner(data?.owner_id === user.id);
-      });
+    let cancelled = false;
+    setIsOwner(album.owner_id === user.id);
 
     supabase
       .from("media")
       .select("*")
+      .eq("album_id", album.id)
       .eq("folder_id", folder.id)
       .order("created_at", { ascending: false })
-      .then(({ data }) => setFiles(data || []));
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) notify(messageFrom(error));
+        else setFiles(data || []);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [folder.id, album.id, user.id]);
-
-  const save = async () => {
-    setSaving(true);
-    const { error } = await supabase
-      .from("album_folders")
-      .update({ name, color })
-      .eq("id", folder.id);
-    setSaving(false);
-    if (error) notify(messageFrom(error));
-    else notify("Папка сохранена.", "success");
-  };
 
   const handleMediaDelete = (deletedId) => {
     setFiles((prev) => prev.filter((m) => m.id !== deletedId));
   };
 
   return (
-    <div>
+    <div className="folder-contents">
       <p className="eyebrow">ПАПКА АЛЬБОМА</p>
-      <h2>Настройки и файлы</h2>
-      <Field label="Название">
-        <input value={name} onChange={(e) => setName(e.target.value)} />
-      </Field>
-      <Field label="Цвет папки">
-        <div className="color-row">
-          <input
-            aria-label="Цвет папки"
-            type="color"
-            value={color}
-            onChange={(e) => setColor(e.target.value)}
-          />
-          <span>Выберите любой цвет в палитре</span>
+      <div className="folder-contents-heading">
+        <div>
+          <h2>{folder.name}</h2>
+          <p>{files.length ? `В папке ${files.length} файлов` : "В папке пока нет файлов"}</p>
         </div>
-      </Field>
-      <button
-        className="secondary save-folder"
-        onClick={save}
-        disabled={saving}
-      >
-        <Palette size={15} />
-        {saving ? "Сохраняем…" : "Сохранить папку"}
-      </button>
-      <MediaGrid
-        items={files}
-        onMediaClick={(item) => setViewerMedia(item)}
-      />
-      <UploadModal
-        album={album}
-        folder={folder}
-        user={user}
-        notify={notify}
-        onUploaded={(items) => setFiles((old) => [...items, ...old])}
-      />
+        {isOwner && <button type="button" className="secondary edit-folder-button" onClick={onEdit}><Edit2 size={15} />Изменить папку</button>}
+      </div>
+      {files.length > 0 && <MediaGrid items={files} onMediaClick={setViewerMedia} />}
       {viewerMedia && (
         <MediaViewer
           media={viewerMedia}
@@ -1675,6 +1791,47 @@ function FolderModal({ folder, album, user, notify }) {
         />
       )}
     </div>
+  );
+}
+function EditFolderModal({ folder, album, user, notify, close, onSaved, onDeleted }) {
+  const [name, setName] = useState(folder.name);
+  const [color, setColor] = useState(folder.color || "#DCE9E3");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const save = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    const { error } = await supabase.from("album_folders").update({ name: name.trim(), color }).eq("id", folder.id).eq("album_id", album.id);
+    setSaving(false);
+    if (error) return notify(messageFrom(error));
+    notify("Папка сохранена.", "success");
+    onSaved?.();
+    close();
+  };
+  const remove = async () => {
+    if (!window.confirm(`Удалить папку «${folder.name}»? Файлы останутся в альбоме.`)) return;
+    setDeleting(true);
+    const { error: mediaError } = await supabase.from("media").update({ folder_id: null }).eq("album_id", album.id).eq("folder_id", folder.id);
+    if (mediaError) {
+      setDeleting(false);
+      return notify(messageFrom(mediaError));
+    }
+    const { error } = await supabase.from("album_folders").delete().eq("id", folder.id).eq("album_id", album.id);
+    setDeleting(false);
+    if (error) return notify(messageFrom(error));
+    notify("Папка удалена, файлы сохранены в альбоме.", "success");
+    onDeleted?.();
+  };
+  return (
+    <form onSubmit={save}>
+      <p className="eyebrow">ИЗМЕНЕНИЕ ПАПКИ</p>
+      <h2>{folder.name}</h2>
+      <Field label="Название"><input required maxLength="100" autoFocus value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <Field label="Цвет папки"><div className="color-row"><input aria-label="Цвет папки" type="color" value={color} onChange={(e) => setColor(e.target.value)} /><span>Выберите любой цвет в палитре</span></div></Field>
+      <button className="primary" disabled={saving || deleting}><Palette size={15} />{saving ? "Сохраняем…" : "Сохранить изменения"}</button>
+      <button className="danger-button action-button" type="button" onClick={remove} disabled={saving || deleting}><Trash2 size={16} />{deleting ? "Удаляем…" : "Удалить папку"}</button>
+      <UploadModal album={album} folder={folder} user={user} notify={notify} />
+    </form>
   );
 }
 function UploadModal({ album, folder, user, notify, onUploaded }) {
