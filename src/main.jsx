@@ -653,16 +653,11 @@ function Auth({ initial = "login" }) {
             </Field>
           )}
           {["login", "signup", "new-password"].includes(mode) && (
-            <Field label={mode === "new-password" ? "Новый пароль" : "Пароль"}>
-              <input
-                required
-                minLength="6"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Минимум 6 символов"
-              />
-            </Field>
+            <PasswordField
+              label={mode === "new-password" ? "Новый пароль" : "Пароль"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
           )}
           {status && (
             <p className={`form-message ${status.type}`}>{status.text}</p>
