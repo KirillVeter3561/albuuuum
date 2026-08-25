@@ -299,7 +299,7 @@ function App() {
         supabase
           .from("albums")
           .select(
-            "id,owner_id,title,slug,background,content_background,font_family,created_at,album_folders(id),media(id)",
+            "id,owner_id,title,slug,background,font_family,created_at,album_folders(id),media(id)",
           )
           .eq("owner_id", user.id)
           .order("created_at", { ascending: false }),
@@ -474,7 +474,6 @@ function App() {
           {modal?.type === "edit-album" && modal.album && (
             <EditAlbumModal
               album={modal.album}
-              user={user}
               notify={notify}
               close={() => setModal(null)}
               onAlbumUpdated={(updatedAlbum) => {
@@ -879,14 +878,14 @@ function AlbumPage({
       {!album ? (
         <EmptyStart create={openCreate} />
       ) : (
-        <>
-          <section
-            className="album-hero"
-            style={{
-              ...getAlbumBackgroundStyle(album.background),
-              "--album-font": `'${album.font_family || "Nunito"}'`,
-            }}
-          >
+        <main
+          className="album-page"
+          style={{
+            ...getAlbumBackgroundStyle(album.background),
+            "--album-font": `'${album.font_family || "Nunito"}'`,
+          }}
+        >
+          <section className="album-hero">
             <p className="eyebrow">✦ СЕМЕЙНАЯ ИСТОРИЯ ✦</p>
             <h1>{album.title}</h1>
             <p>{warmPhrase}</p>
@@ -944,13 +943,7 @@ function AlbumPage({
             </div>
           </section>
 
-          <section
-            className="content"
-            style={{
-              background: album.content_background || "#FFFEFA",
-              "--album-font": `'${album.font_family || "Nunito"}'`,
-            }}
-          >
+          <section className="content">
             <div className="section-heading">
               <div>
                 <p className="eyebrow">ВСЕ ВОСПОМИНАНИЯ</p>
@@ -1030,7 +1023,7 @@ function AlbumPage({
               notify={notify}
             />
           )}
-        </>
+        </main>
       )}
     </>
   );
@@ -1582,7 +1575,6 @@ function CreateAlbum({ done, notify }) {
   const [title, setTitle] = useState(""),
     [password, setPassword] = useState(""),
     [background, setBackground] = useState(backgrounds[4]),
-    [contentBackground, setContentBackground] = useState("#FFFEFA"),
     [fontFamily, setFontFamily] = useState("Nunito"),
     [busy, setBusy] = useState(false);
   const level = score(password);
@@ -1599,7 +1591,6 @@ function CreateAlbum({ done, notify }) {
       album_slug: slug,
       album_password: password,
       album_background: background,
-      album_content_background: contentBackground,
       album_font_family: fontFamily,
     });
     setBusy(false);
@@ -1649,12 +1640,8 @@ function CreateAlbum({ done, notify }) {
         <span>СЕМЕЙНАЯ ИСТОРИЯ</span>
         <b>{title || "Название альбома"}</b>
         <small>{warmAlbumPhrases[0]}</small>
-        <i style={{ background: contentBackground }} />
       </div>
       <AlbumBackgroundPicker background={background} onChange={setBackground} />
-      <Field label="Цвет нижней, светлой части">
-        <input type="color" value={contentBackground} onChange={(e) => setContentBackground(e.target.value)} />
-      </Field>
       <Field label="Шрифт альбома">
         <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)}>
           {albumFonts.map((font) => <option key={font.value} value={font.value}>{font.label}</option>)}
@@ -1674,48 +1661,18 @@ function CreateAlbum({ done, notify }) {
   );
 }
 
-function EditAlbumModal({ album, user, notify, close, onAlbumUpdated }) {
+function EditAlbumModal({ album, notify, close, onAlbumUpdated }) {
   const [title, setTitle] = useState(album.title);
   const [background, setBackground] = useState(album.background || backgrounds[0]);
-  const [contentBackground, setContentBackground] = useState(
-    album.content_background || "#FFFEFA",
-  );
   const [fontFamily, setFontFamily] = useState(album.font_family || "Nunito");
   const [password, setPassword] = useState("");
-  const [customBgFile, setCustomBgFile] = useState(null);
   const [busy, setBusy] = useState(false);
-  const fileInput = useRef(null);
-
-  const handleCustomBackground = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    setBusy(true);
-    const path = `${user.id}/${album.id}/bg-${crypto.randomUUID()}-${file.name}`;
-    const { error: uploadError } = await supabase.storage
-      .from("album-media")
-      .upload(path, file);
-    
-    if (uploadError) {
-      notify(messageFrom(uploadError));
-      setBusy(false);
-      return;
-    }
-
-    const { data } = await supabase.storage
-      .from("album-media")
-      .getPublicUrl(path);
-    
-    setBackground(data.publicUrl);
-    setCustomBgFile(path);
-    setBusy(false);
-  };
 
   const saveChanges = async () => {
     const trimmedTitle = title.trim();
     if (!trimmedTitle) return notify("Введите название альбома.");
     setBusy(true);
-    const updates = { title: trimmedTitle, background, content_background: contentBackground, font_family: fontFamily };
+    const updates = { title: trimmedTitle, background, font_family: fontFamily };
     const { error: albumError } = await supabase
       .from("albums")
       .update(updates)
@@ -1761,12 +1718,8 @@ function EditAlbumModal({ album, user, notify, close, onAlbumUpdated }) {
         <span>СЕМЕЙНАЯ ИСТОРИЯ</span>
         <b>{title || "Название альбома"}</b>
         <small>{warmAlbumPhrases[0]}</small>
-        <i style={{ background: contentBackground }} />
       </div>
       <AlbumBackgroundPicker background={background} onChange={setBackground} />
-      <Field label="Цвет нижней, светлой части">
-        <input type="color" value={contentBackground} onChange={(e) => setContentBackground(e.target.value)} />
-      </Field>
       <Field label="Шрифт альбома">
         <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)}>
           {albumFonts.map((font) => <option key={font.value} value={font.value}>{font.label}</option>)}
@@ -1780,25 +1733,6 @@ function EditAlbumModal({ album, user, notify, close, onAlbumUpdated }) {
         minLength={8}
         required={false}
       />
-
-      <Field label="Или загрузите своё изображение">
-        <input
-          ref={fileInput}
-          type="file"
-          accept="image/*"
-          onChange={handleCustomBackground}
-          style={{ padding: "8px 0" }}
-        />
-        <small style={{ display: "block", marginTop: "8px", color: "#666" }}>
-          Изображение будет адаптировано под размер экрана
-        </small>
-      </Field>
-
-      {customBgFile && (
-        <p style={{ color: "#4CAF50", marginTop: "8px", fontSize: "14px" }}>
-          ✓ Кастомный фон загружен
-        </p>
-      )}
 
       <button
         className="primary"
