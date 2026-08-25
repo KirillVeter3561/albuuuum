@@ -29,6 +29,7 @@ import {
   X,
 } from "lucide-react";
 import "./style.css";
+import "./auth.css";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -237,8 +238,15 @@ function Logo() {
   );
 }
 function messageFrom(error) {
-  if (error?.message?.toLowerCase().includes("rate limit"))
+  const message = error?.message?.toLowerCase() || "";
+  if (message.includes("rate limit"))
     return "Слишком много писем за короткое время. Подождите несколько минут. Для реального сайта подключите SMTP — инструкция есть в README.";
+  if (
+    message.includes("error sending confirmation email") ||
+    message.includes("error sending recovery email") ||
+    message.includes("smtp")
+  )
+    return "Не удалось отправить письмо. Проверьте настройки SMTP Resend в Supabase и повторите попытку позже.";
   return error?.message || "Не удалось выполнить действие. Попробуйте ещё раз.";
 }
 
@@ -558,36 +566,51 @@ function Auth({ initial = "login" }) {
     event.preventDefault();
     setBusy(true);
     setStatus(null);
-    let error;
-    if (mode === "login")
-      ({ error } = await supabase.auth.signInWithPassword({ email, password }));
-    if (mode === "signup")
-      ({ error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { emailRedirectTo: appUrl },
-      }));
-    if (mode === "reset")
-      ({ error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${appUrl}/reset-password`,
-      }));
-    if (mode === "new-password")
-      ({ error } = await supabase.auth.updateUser({ password }));
-    setBusy(false);
-    if (error) return setStatus({ type: "error", text: messageFrom(error) });
-    if (mode === "signup")
-      setStatus({
-        type: "success",
-        text: "Письмо с подтверждением отправлено. Откройте его, затем войдите в аккаунт.",
-      });
-    if (mode === "reset")
-      setStatus({
-        type: "success",
-        text: "Ссылка для сброса отправлена на почту. Проверьте также папку «Спам».",
-      });
-    if (mode === "new-password") {
-      window.history.replaceState({}, "", "/");
-      window.location.reload();
+    try {
+      const normalizedEmail = email.trim();
+      let error;
+      let data;
+      if (mode === "login")
+        ({ error } = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        }));
+      if (mode === "signup")
+        ({ data, error } = await supabase.auth.signUp({
+          email: normalizedEmail,
+          password,
+          options: { emailRedirectTo: appUrl },
+        }));
+      if (mode === "reset")
+        ({ error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+          redirectTo: `${appUrl}/reset-password`,
+        }));
+      if (mode === "new-password")
+        ({ error } = await supabase.auth.updateUser({ password }));
+      if (error) {
+        setStatus({ type: "error", text: messageFrom(error) });
+        return;
+      }
+      if (mode === "signup")
+        setStatus({
+          type: "success",
+          text: data?.session
+            ? "Аккаунт создан, подтверждение почты не требуется. Вы уже вошли в аккаунт."
+            : "Если адрес можно использовать для регистрации, письмо с подтверждением отправлено. Проверьте также папку «Спам».",
+        });
+      if (mode === "reset")
+        setStatus({
+          type: "success",
+          text: "Если адрес зарегистрирован, ссылка для сброса отправлена на почту. Проверьте также папку «Спам».",
+        });
+      if (mode === "new-password") {
+        window.history.replaceState({}, "", "/");
+        window.location.reload();
+      }
+    } catch (error) {
+      setStatus({ type: "error", text: messageFrom(error) });
+    } finally {
+      setBusy(false);
     }
   };
   const titles = {
@@ -755,6 +778,7 @@ function AlbumPage({
   const slideshowResumeTimer = useRef(null);
   const slideshowAutoScrollTarget = useRef(null);
   const [isOwner, setIsOwner] = useState(false);
+  const slideshowUrls = useSignedUrls(allPhotos.map((item) => item.file_path));
 
   useEffect(() => {
     if (!album) return;
@@ -778,7 +802,7 @@ function AlbumPage({
       setMedia(mediaResult.data || []);
     });
 
-    // Загружаем ВСЕ фотографии альбома для слайдшоу (включая из папок)
+    // Фотографии альбома нужны для витрины и навигации в просмотрщике.
     supabase
       .from("media")
       .select("*")
@@ -920,7 +944,7 @@ function AlbumPage({
                       className="slideshow-item"
                       onClick={() => handleMediaClick(item)}
                     >
-                      <SignedImage path={item.file_path} />
+                      <SignedImage src={slideshowUrls.get(item.file_path)} />
                     </button>
                   )),
                 )
@@ -930,7 +954,7 @@ function AlbumPage({
                   className="slideshow-item"
                   onClick={() => handleMediaClick(allPhotos[0])}
                 >
-                  <SignedImage path={allPhotos[0].file_path} />
+                  <SignedImage src={slideshowUrls.get(allPhotos[0].file_path)} />
                 </button>
               ) : (
                 exampleImages.map((src, index) => (
@@ -1055,20 +1079,54 @@ function EmptyStart({ create }) {
     </main>
   );
 }
+function useSignedUrls(paths, bucket = "album-media") {
+  const [urls, setUrls] = useState(() => new Map());
+  const key = paths.join("\u001f");
+
+  useEffect(() => {
+    const externalUrls = paths.filter((path) => path?.startsWith("http"));
+    const storagePaths = [...new Set(paths.filter((path) => path && !path.startsWith("http")))];
+    let cancelled = false;
+    setUrls(new Map(externalUrls.map((path) => [path, path])));
+    if (!storagePaths.length) return () => {
+      cancelled = true;
+    };
+
+    supabase.storage
+      .from(bucket)
+      .createSignedUrls(storagePaths, 3600)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const nextUrls = new Map(externalUrls.map((path) => [path, path]));
+        data?.forEach(({ path, signedUrl }) => {
+          if (signedUrl) nextUrls.set(path, signedUrl);
+        });
+        setUrls(nextUrls);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bucket, key]);
+
+  return urls;
+}
+
 function MediaGrid({ items, onMediaClick }) {
+  const urls = useSignedUrls(items.map((item) => item.file_path));
   return (
     <div className="media-grid">
       {items.map((item) =>
         item.media_type === "image" ? (
           <SignedImage
             key={item.id}
-            path={item.file_path}
+            src={urls.get(item.file_path)}
             onClick={() => onMediaClick?.(item)}
           />
         ) : (
           <SignedVideo
             key={item.id}
-            path={item.file_path}
+            src={urls.get(item.file_path)}
             onClick={() => onMediaClick?.(item)}
           />
         ),
@@ -1076,20 +1134,12 @@ function MediaGrid({ items, onMediaClick }) {
     </div>
   );
 }
-function SignedImage({ path, onClick }) {
-  const [src, setSrc] = useState("");
-  useEffect(() => {
-    if (path?.startsWith("http")) setSrc(path);
-    else
-      supabase.storage
-        .from("album-media")
-        .createSignedUrl(path, 3600)
-        .then(({ data }) => setSrc(data?.signedUrl || ""));
-  }, [path]);
+function SignedImage({ src, onClick }) {
   return src ? (
     <img
       src={src}
       alt="Воспоминание"
+      loading="lazy"
       onClick={onClick}
       onKeyDown={(event) => {
         if (onClick && (event.key === "Enter" || event.key === " ")) {
@@ -1106,14 +1156,7 @@ function SignedImage({ path, onClick }) {
   );
 }
 
-function SignedVideo({ path, onClick }) {
-  const [src, setSrc] = useState("");
-  useEffect(() => {
-    supabase.storage
-      .from("album-media")
-      .createSignedUrl(path, 3600)
-      .then(({ data }) => setSrc(data?.signedUrl || ""));
-  }, [path]);
+function SignedVideo({ src, onClick }) {
   return (
     <div
       className="video-card"

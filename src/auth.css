@@ -1,0 +1,14 @@
+/* Поле статуса остаётся читаемым и не сжимает элементы формы. */
+.auth-box .form-message {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.auth-box .form-message.success {
+  color: #275f44;
+  background: #f0f9f1;
+  border: 1px solid #aed7b8;
+}
