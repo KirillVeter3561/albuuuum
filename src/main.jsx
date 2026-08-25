@@ -54,6 +54,37 @@ const backgrounds = [
   "#DCE7F0",
   "#EEE7D9",
 ];
+const decorativeBackgrounds = [
+  { id: "mint-cloud", label: "Мятное облако", background: "radial-gradient(circle at 16% 18%, #f9ffeb 0 8%, transparent 33%), radial-gradient(circle at 88% 82%, #74cfae 0, transparent 45%), linear-gradient(135deg, #c9f0d8, #91d7c1)" },
+  { id: "blue-air", label: "Голубой воздух", background: "radial-gradient(circle at 18% 20%, #ffffffb8 0 10%, transparent 37%), radial-gradient(circle at 78% 78%, #75bfe5 0, transparent 47%), linear-gradient(135deg, #e3f7fb, #a6d8ed)" },
+  { id: "peach-sun", label: "Персиковое солнце", background: "radial-gradient(circle at 75% 24%, #fff2c9 0 9%, transparent 34%), radial-gradient(circle at 12% 88%, #f6b49a 0, transparent 48%), linear-gradient(135deg, #ffe9d4, #f7c1ad)" },
+  { id: "rose-water", label: "Розовая акварель", background: "radial-gradient(circle at 12% 18%, #fff9f3 0 8%, transparent 38%), radial-gradient(circle at 82% 70%, #dc94ad 0, transparent 48%), linear-gradient(135deg, #fce1e3, #efb8c8)" },
+  { id: "midnight-bloom", label: "Ночная гортензия", background: "radial-gradient(circle at 17% 18%, #75a2d4 0, transparent 32%), radial-gradient(circle at 80% 74%, #151f63 0, transparent 49%), linear-gradient(135deg, #394c97, #1a286e)" },
+  { id: "sand-dunes", label: "Песчаные дюны", background: "radial-gradient(ellipse at 72% 15%, #fff9df 0, transparent 40%), radial-gradient(ellipse at 20% 100%, #d7ad76 0, transparent 52%), linear-gradient(135deg, #f4e4c4, #e5c58e)" },
+  { id: "lemon-cream", label: "Лимонный крем", background: "radial-gradient(circle at 85% 18%, #fffdf0 0 10%, transparent 38%), radial-gradient(circle at 18% 82%, #f3ca4f 0, transparent 46%), linear-gradient(135deg, #fff5b7, #f7dc78)" },
+  { id: "lilac-mist", label: "Сиреневый туман", background: "radial-gradient(circle at 18% 15%, #fffaff 0 9%, transparent 36%), radial-gradient(circle at 84% 76%, #a58dce 0, transparent 49%), linear-gradient(135deg, #ece2fa, #c5b5e4)" },
+  { id: "coral-glow", label: "Коралловое сияние", background: "radial-gradient(circle at 76% 22%, #ffe8bd 0 7%, transparent 33%), radial-gradient(circle at 15% 85%, #ef7d77 0, transparent 50%), linear-gradient(135deg, #ffd8c7, #f3a49c)" },
+  { id: "sage-garden", label: "Шалфейный сад", background: "radial-gradient(circle at 80% 14%, #fbffe8 0 8%, transparent 35%), radial-gradient(circle at 17% 82%, #84ad86 0, transparent 47%), linear-gradient(135deg, #dcebc5, #a9cba6)" },
+  { id: "sea-glass", label: "Морское стекло", background: "radial-gradient(circle at 20% 12%, #edfffc 0 9%, transparent 37%), radial-gradient(circle at 82% 82%, #4bb9b1 0, transparent 48%), linear-gradient(135deg, #bde9df, #7acdc2)" },
+  { id: "apricot-paper", label: "Абрикосовая бумага", background: "repeating-linear-gradient(45deg, #ffffff19 0 1px, transparent 1px 7px), radial-gradient(circle at 12% 20%, #fff0dc 0, transparent 38%), linear-gradient(135deg, #f9d1a7, #e9a774)" },
+  { id: "berry-milk", label: "Ягодное молоко", background: "radial-gradient(circle at 80% 19%, #fff7f7 0 9%, transparent 35%), radial-gradient(circle at 13% 82%, #bd6686 0, transparent 49%), linear-gradient(135deg, #f4c8d0, #d993aa)" },
+  { id: "ice-lagoon", label: "Ледяная лагуна", background: "radial-gradient(circle at 14% 16%, #ffffffbd 0 9%, transparent 35%), radial-gradient(circle at 82% 82%, #4e9ec8 0, transparent 47%), linear-gradient(135deg, #d2eff4, #91c9dc)" },
+  { id: "lavender-night", label: "Лавандовая ночь", background: "radial-gradient(circle at 20% 18%, #d0c8ff 0, transparent 31%), radial-gradient(circle at 82% 82%, #3f347d 0, transparent 52%), linear-gradient(135deg, #8277bb, #474083)" },
+  { id: "vanilla-sky", label: "Ванильное небо", background: "radial-gradient(circle at 78% 17%, #fffde7 0 9%, transparent 35%), radial-gradient(circle at 15% 85%, #b6d5e4 0, transparent 47%), linear-gradient(135deg, #f7ebce, #d5e7e9)" },
+  { id: "blush-silk", label: "Розовый шёлк", background: "repeating-linear-gradient(135deg, #ffffff20 0 2px, transparent 2px 10px), radial-gradient(circle at 75% 15%, #fff5f2 0, transparent 37%), linear-gradient(135deg, #f4c6c3, #df999b)" },
+  { id: "ocean-depth", label: "Глубокий океан", background: "radial-gradient(circle at 15% 17%, #74c8d3 0, transparent 30%), radial-gradient(circle at 82% 78%, #093e68 0, transparent 52%), linear-gradient(135deg, #237596, #0c527b)" },
+  { id: "pistachio-light", label: "Фисташковый свет", background: "radial-gradient(circle at 80% 18%, #ffffed 0 10%, transparent 37%), radial-gradient(circle at 16% 84%, #b1ce73 0, transparent 48%), linear-gradient(135deg, #e7f1bb, #c3dc91)" },
+  { id: "terracotta-dawn", label: "Терракотовый рассвет", background: "radial-gradient(circle at 74% 18%, #ffe7b8 0 9%, transparent 35%), radial-gradient(circle at 14% 84%, #b96557 0, transparent 49%), linear-gradient(135deg, #e9b19a, #ca806d)" },
+];
+const decorativeBackgroundByValue = new Map(
+  decorativeBackgrounds.map((background) => [`decorative:${background.id}`, background]),
+);
+const getAlbumBackgroundStyle = (background) => {
+  const decorativeBackground = decorativeBackgroundByValue.get(background);
+  if (decorativeBackground) return { background: decorativeBackground.background };
+  if (background?.startsWith("#")) return { background };
+  return { background: background ? `url(${background}) center / cover` : backgrounds[0] };
+};
 const albumFonts = [
   { value: "Nunito", label: "Нежный — Nunito" },
   { value: "Manrope", label: "Современный — Manrope" },
@@ -96,6 +127,69 @@ function Field({ label, children }) {
       <span>{label}</span>
       {children}
     </label>
+  );
+}
+function AlbumBackgroundPicker({ background, onChange }) {
+  const [isDecorativeOpen, setIsDecorativeOpen] = useState(false);
+  const selectedDecorativeBackground = decorativeBackgroundByValue.get(background);
+  return (
+    <div className="album-background-picker">
+      <div className="field-label">Цвет фона</div>
+      <div className="backgrounds" aria-label="Выбор цвета фона">
+        {backgrounds.map((color) => (
+          <button
+            key={color}
+            type="button"
+            className={background === color ? "chosen" : ""}
+            style={{ background: color }}
+            onClick={() => onChange(color)}
+            aria-label={`Выбрать цвет фона ${color}`}
+            aria-pressed={background === color}
+          />
+        ))}
+        <label className="custom-color-button" title="Выбрать свой цвет">
+          <span className="sr-only">Выбрать свой цвет фона</span>
+          <input
+            type="color"
+            value={background?.startsWith("#") ? background : backgrounds[0]}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </label>
+      </div>
+      <button
+        type="button"
+        className="decorative-background-toggle"
+        onClick={() => setIsDecorativeOpen((isOpen) => !isOpen)}
+        aria-expanded={isDecorativeOpen}
+        aria-controls="decorative-backgrounds"
+      >
+        <span>Фоны</span>
+        <small>{selectedDecorativeBackground?.label || "Градиенты и текстуры"}</small>
+        <ChevronRight className={isDecorativeOpen ? "is-open" : ""} size={17} aria-hidden="true" />
+      </button>
+      {isDecorativeOpen && (
+        <div id="decorative-backgrounds" className="decorative-backgrounds" aria-label="Декоративные фоны">
+          {decorativeBackgrounds.map((decorativeBackground) => {
+            const value = `decorative:${decorativeBackground.id}`;
+            const isSelected = background === value;
+            return (
+              <button
+                key={decorativeBackground.id}
+                type="button"
+                className={isSelected ? "chosen" : ""}
+                style={{ background: decorativeBackground.background }}
+                onClick={() => onChange(value)}
+                aria-label={`Выбрать фон «${decorativeBackground.label}»`}
+                aria-pressed={isSelected}
+              >
+                <span>{decorativeBackground.label}</span>
+                {isSelected && <Check size={16} aria-hidden="true" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 function PasswordField({
@@ -789,9 +883,7 @@ function AlbumPage({
           <section
             className="album-hero"
             style={{
-              background: album.background?.startsWith("#")
-                ? album.background
-                : `url(${album.background}) center/cover`,
+              ...getAlbumBackgroundStyle(album.background),
               "--album-font": `'${album.font_family || "Nunito"}'`,
             }}
           >
@@ -1410,7 +1502,7 @@ function Dashboard({
               <article key={album.id}>
                 <div
                   className="album-swatch"
-                  style={{ background: album.background }}
+                  style={getAlbumBackgroundStyle(album.background)}
                 >
                   <Heart size={21} fill="currentColor" />
                 </div>
@@ -1553,15 +1645,13 @@ function CreateAlbum({ done, notify }) {
           }
         </span>
       </div>
-      <div className="album-preview" style={{ background, fontFamily: `'${fontFamily}', sans-serif` }}>
+      <div className="album-preview" style={{ ...getAlbumBackgroundStyle(background), fontFamily: `'${fontFamily}', sans-serif` }}>
         <span>СЕМЕЙНАЯ ИСТОРИЯ</span>
         <b>{title || "Название альбома"}</b>
         <small>{warmAlbumPhrases[0]}</small>
         <i style={{ background: contentBackground }} />
       </div>
-      <Field label="Цвет верхней части альбома">
-        <input type="color" value={background} onChange={(e) => setBackground(e.target.value)} />
-      </Field>
+      <AlbumBackgroundPicker background={background} onChange={setBackground} />
       <Field label="Цвет нижней, светлой части">
         <input type="color" value={contentBackground} onChange={(e) => setContentBackground(e.target.value)} />
       </Field>
@@ -1585,7 +1675,8 @@ function CreateAlbum({ done, notify }) {
 }
 
 function EditAlbumModal({ album, user, notify, close, onAlbumUpdated }) {
-  const [background, setBackground] = useState(album.background);
+  const [title, setTitle] = useState(album.title);
+  const [background, setBackground] = useState(album.background || backgrounds[0]);
   const [contentBackground, setContentBackground] = useState(
     album.content_background || "#FFFEFA",
   );
@@ -1621,8 +1712,10 @@ function EditAlbumModal({ album, user, notify, close, onAlbumUpdated }) {
   };
 
   const saveChanges = async () => {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) return notify("Введите название альбома.");
     setBusy(true);
-    const updates = { background, content_background: contentBackground, font_family: fontFamily };
+    const updates = { title: trimmedTitle, background, content_background: contentBackground, font_family: fontFamily };
     const { error: albumError } = await supabase
       .from("albums")
       .update(updates)
@@ -1655,15 +1748,22 @@ function EditAlbumModal({ album, user, notify, close, onAlbumUpdated }) {
       <p className="eyebrow">НАСТРОЙКИ АЛЬБОМА</p>
       <h2>{album.title}</h2>
 
-      <div className="album-preview" style={{ background, fontFamily: `'${fontFamily}', sans-serif` }}>
+      <Field label="Название альбома">
+        <input
+          required
+          maxLength="100"
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Например, Семья Ивановых"
+        />
+      </Field>
+      <div className="album-preview" style={{ ...getAlbumBackgroundStyle(background), fontFamily: `'${fontFamily}', sans-serif` }}>
         <span>СЕМЕЙНАЯ ИСТОРИЯ</span>
-        <b>{album.title}</b>
+        <b>{title || "Название альбома"}</b>
         <small>{warmAlbumPhrases[0]}</small>
         <i style={{ background: contentBackground }} />
       </div>
-      <Field label="Цвет верхней части альбома">
-        <input type="color" value={background} onChange={(e) => setBackground(e.target.value)} />
-      </Field>
+      <AlbumBackgroundPicker background={background} onChange={setBackground} />
       <Field label="Цвет нижней, светлой части">
         <input type="color" value={contentBackground} onChange={(e) => setContentBackground(e.target.value)} />
       </Field>
