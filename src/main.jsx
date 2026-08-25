@@ -838,7 +838,7 @@ function AlbumPage({
         const width = loopWidth();
         if (width > container.clientWidth) {
           if (container.scrollLeft >= width) container.scrollLeft -= width;
-          container.scrollLeft += elapsed * 0.012;
+          container.scrollLeft += elapsed * 0.018;
           slideshowAutoScrollTarget.current = container.scrollLeft;
         }
       }
