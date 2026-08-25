@@ -1906,17 +1906,28 @@ function EditFolderModal({ folder, album, user, notify, close, onSaved, onUpload
     close();
   };
   const remove = async () => {
-    if (!window.confirm(`Удалить папку «${folder.name}»? Файлы останутся в альбоме.`)) return;
+    if (!window.confirm(`Удалить папку «${folder.name}» со всеми файлами? Это нельзя отменить.`)) return;
     setDeleting(true);
-    const { error: mediaError } = await supabase.from("media").update({ folder_id: null }).eq("album_id", album.id).eq("folder_id", folder.id);
-    if (mediaError) {
+    const { data: folderFiles, error: filesError } = await supabase
+      .from("media")
+      .select("file_path")
+      .eq("album_id", album.id)
+      .eq("folder_id", folder.id);
+    if (filesError) {
       setDeleting(false);
-      return notify(messageFrom(mediaError));
+      return notify(messageFrom(filesError));
+    }
+    const { error: storageError } = folderFiles?.length
+      ? await supabase.storage.from("album-media").remove(folderFiles.map((file) => file.file_path))
+      : { error: null };
+    if (storageError) {
+      setDeleting(false);
+      return notify(messageFrom(storageError));
     }
     const { error } = await supabase.from("album_folders").delete().eq("id", folder.id).eq("album_id", album.id);
     setDeleting(false);
     if (error) return notify(messageFrom(error));
-    notify("Папка удалена, файлы сохранены в альбоме.", "success");
+    notify("Папка и её файлы удалены.", "success");
     onDeleted?.();
   };
   return (
